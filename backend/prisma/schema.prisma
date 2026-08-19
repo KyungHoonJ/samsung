@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum ConsultationCategory {
+  ARTICLES_OF_INCORPORATION
+  INHERITANCE
+  OTHER
+}
+
+enum ConsultationStatus {
+  NEW
+  CONTACT_SCHEDULED
+  CONTACTED
+  APPOINTMENT_BOOKED
+  COMPLETED
+  CONTRACT_IN_PROGRESS
+  CLOSED
+  UNREACHABLE
+  PENDING_DELETION
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  MANAGER
+  CONSULTANT
+}
+
+enum ContactType {
+  CALL
+  SMS
+  EMAIL
+  MEETING
+}
+
+enum AuditAction {
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  VIEW_LIST
+  VIEW_DETAIL
+  UPDATE_STATUS
+  CREATE_NOTE
+  CREATE_CONTACT
+  DELETE_CONSULTATION
+  CREATE_ADMIN
+  UPDATE_ADMIN
+  VIEW_AUDIT_LOG
+}
+
+model Consultation {
+  id                    String               @id @default(uuid()) @db.Char(36)
+  publicId              String               @unique @map("public_id") @db.VarChar(32)
+  category              ConsultationCategory
+  nameEncrypted         String               @map("name_encrypted") @db.Text
+  phoneEncrypted        String               @map("phone_encrypted") @db.Text
+  phoneSearchHash       String               @map("phone_search_hash") @db.Char(64)
+  regionLevel1          String               @map("region_level_1") @db.VarChar(50)
+  regionLevel2          String?              @map("region_level_2") @db.VarChar(50)
+  preferredPlace        String?              @map("preferred_place") @db.VarChar(100)
+  preferredContactTime  String?              @map("preferred_contact_time") @db.VarChar(50)
+  inquiryEncrypted      String               @map("inquiry_encrypted") @db.Text
+  status                ConsultationStatus   @default(NEW)
+  privacyConsentVersion String               @map("privacy_consent_version") @db.VarChar(30)
+  privacyConsentAt      DateTime             @map("privacy_consent_at")
+  retentionExpiresAt    DateTime             @map("retention_expires_at")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  deletedAt             DateTime?            @map("deleted_at")
+  notes                 ConsultationNote[]
+  contactHistories      ContactHistory[]
+
+  @@index([status, createdAt])
+  @@index([category, createdAt])
+  @@index([retentionExpiresAt])
+  @@map("consultations")
+}
+
+model Admin {
+  id           String             @id @default(uuid()) @db.Char(36)
+  email        String             @unique @db.VarChar(191)
+  passwordHash String             @map("password_hash") @db.VarChar(255)
+  displayName  String             @map("display_name") @db.VarChar(50)
+  role         AdminRole          @default(CONSULTANT)
+  isActive     Boolean            @default(true) @map("is_active")
+  lastLoginAt  DateTime?          @map("last_login_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  sessions     AdminSession[]
+  notes        ConsultationNote[]
+  contacts     ContactHistory[]
+  auditLogs    AuditLog[]
+
+  @@map("admins")
+}
+
+model AdminSession {
+  id         String    @id @default(uuid()) @db.Char(36)
+  adminId    String    @map("admin_id") @db.Char(36)
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime  @default(now()) @map("last_used_at")
+  admin      Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, expiresAt])
+  @@index([expiresAt])
+  @@map("admin_sessions")
+}
+
+model ConsultationNote {
+  id               String       @id @default(uuid()) @db.Char(36)
+  consultationId   String       @map("consultation_id") @db.Char(36)
+  authorAdminId    String       @map("author_admin_id") @db.Char(36)
+  contentEncrypted String       @map("content_encrypted") @db.Text
+  createdAt        DateTime     @default(now()) @map("created_at")
+  consultation     Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  author           Admin        @relation(fields: [authorAdminId], references: [id])
+
+  @@index([consultationId, createdAt])
+  @@map("consultation_notes")
+}
+
+model ContactHistory {
+  id             String       @id @default(uuid()) @db.Char(36)
+  consultationId String       @map("consultation_id") @db.Char(36)
+  adminId        String       @map("admin_id") @db.Char(36)
+  type           ContactType
+  result         String?      @db.VarChar(500)
+  contactedAt    DateTime     @map("contacted_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  admin          Admin        @relation(fields: [adminId], references: [id])
+
+  @@index([consultationId, contactedAt])
+  @@map("contact_histories")
+}
+
+model AuditLog {
+  id         String      @id @default(uuid()) @db.Char(36)
+  adminId    String?     @map("admin_id") @db.Char(36)
+  action     AuditAction
+  targetType String      @map("target_type") @db.VarChar(50)
+  targetId   String?     @map("target_id") @db.VarChar(64)
+  metadata   Json?
+  ipAddress  String?     @map("ip_address") @db.VarChar(64)
+  createdAt  DateTime    @default(now()) @map("created_at")
+  admin      Admin?      @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
